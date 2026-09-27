@@ -321,26 +321,43 @@ class OrphanedFilesCommand extends Command
         }
 
         $stats = ['deleted' => 0, 'claimed' => 0, 'failed' => 0];
+        $failures = [];
 
-        foreach ($deletable as $disk => $directories) {
-            [$owned, $ancestors] = $this->mediaDirectories($disk);
+        $directories = [];
+        $claims = [];
 
-            foreach ($directories as $directory) {
-                if ($this->isClaimed($directory, $owned, $ancestors)) {
-                    $stats['claimed']++;
+        foreach ($deletable as $disk => $diskDirectories) {
+            $claims[$disk] = $this->mediaDirectories($disk);
 
-                    continue;
-                }
-
-                try {
-                    $deleted = $this->filesystem->disk($disk)->deleteDirectory($directory);
-                } catch (Throwable $e) {
-                    $this->error("Directory `{$directory}` on disk `{$disk}`: {$e->getMessage()}");
-                    $deleted = false;
-                }
-
-                $stats[$deleted ? 'deleted' : 'failed']++;
+            foreach ($diskDirectories as $directory) {
+                $directories[] = [$disk, $directory];
             }
+        }
+
+        $this->withProgressBar($directories, function (array $entry) use ($claims, &$stats, &$failures): void {
+            [$disk, $directory] = $entry;
+            [$owned, $ancestors] = $claims[$disk];
+
+            if ($this->isClaimed($directory, $owned, $ancestors)) {
+                $stats['claimed']++;
+
+                return;
+            }
+
+            try {
+                $deleted = $this->filesystem->disk($disk)->deleteDirectory($directory);
+            } catch (Throwable $e) {
+                $failures[] = "Directory `{$directory}` on disk `{$disk}`: {$e->getMessage()}";
+                $deleted = false;
+            }
+
+            $stats[$deleted ? 'deleted' : 'failed']++;
+        });
+
+        $this->newLine(2);
+
+        foreach ($failures as $failure) {
+            $this->error($failure);
         }
 
         $this->table(['Status', 'Count'], [

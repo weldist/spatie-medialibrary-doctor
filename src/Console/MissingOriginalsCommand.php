@@ -199,9 +199,16 @@ class MissingOriginalsCommand extends Command
         }
 
         $stats = ['deleted' => 0, 'reappeared' => 0, 'gone' => 0, 'failed' => 0];
+        $failures = [];
 
-        foreach ($deletable as $id) {
-            $stats[$this->deleteIfStillMissing($id)]++;
+        $this->withProgressBar($deletable, function (int|string $id) use (&$stats, &$failures): void {
+            $stats[$this->deleteIfStillMissing($id, $failures)]++;
+        });
+
+        $this->newLine(2);
+
+        foreach ($failures as $failure) {
+            $this->error($failure);
         }
 
         $this->table(['Status', 'Count'], [
@@ -215,9 +222,10 @@ class MissingOriginalsCommand extends Command
     }
 
     /**
+     * @param  list<string>  $failures
      * @return 'deleted'|'reappeared'|'gone'|'failed'
      */
-    private function deleteIfStillMissing(int|string $id): string
+    private function deleteIfStillMissing(int|string $id, array &$failures): string
     {
         $media = $this->mediaModel()::query()->find($id);
 
@@ -232,7 +240,7 @@ class MissingOriginalsCommand extends Command
 
             $media->delete();
         } catch (Throwable $e) {
-            $this->error("Media #{$id}: {$e->getMessage()}");
+            $failures[] = "Media #{$id}: {$e->getMessage()}";
 
             return 'failed';
         }
