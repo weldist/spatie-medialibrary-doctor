@@ -33,6 +33,13 @@ trait CreatesMedia
         return array_map(fn () => $this->addMedia(disk: $disk), range(1, $count));
     }
 
+    protected function putFile(string $path, int $ageInMinutes = 120, string $disk = 'media'): void
+    {
+        Storage::disk($disk)->put($path, 'orphan');
+
+        touch(Storage::disk($disk)->path($path), Carbon::now()->subMinutes($ageInMinutes)->getTimestamp());
+    }
+
     protected function removeOriginal(Media $media): Media
     {
         Storage::disk($media->disk)->delete($media->getPathRelativeToRoot());

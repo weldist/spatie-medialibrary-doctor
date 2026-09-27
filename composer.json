@@ -1,6 +1,6 @@
 {
     "name": "weldist/spatie-medialibrary-doctor",
-    "description": "Diagnoses spatie/laravel-medialibrary media rows whose original file is missing and safely removes them.",
+    "description": "Finds spatie/laravel-medialibrary media rows without a file and files without a media row, and safely removes them.",
     "keywords": ["laravel", "spatie", "medialibrary", "media", "missing-files", "cleanup"],
     "license": "MIT",
     "authors": [

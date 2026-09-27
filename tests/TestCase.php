@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Weldist\Spatie\MediaLibrary\Doctor\Tests;
 
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\Filesystem;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 use Spatie\MediaLibrary\MediaLibraryServiceProvider;
 use Weldist\Spatie\MediaLibrary\Doctor\DoctorServiceProvider;
+use Weldist\Spatie\MediaLibrary\Doctor\Tests\Support\FailingFilesystemAdapter;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -43,6 +46,17 @@ abstract class TestCase extends BaseTestCase
             MediaLibraryServiceProvider::class,
             DoctorServiceProvider::class,
         ];
+    }
+
+    protected function registerFailingDisk(): void
+    {
+        Storage::extend('failing', function ($app, array $config): FilesystemAdapter {
+            $adapter = new FailingFilesystemAdapter($config['root']);
+
+            return new FilesystemAdapter(new Filesystem($adapter), $adapter, $config);
+        });
+
+        config(['filesystems.disks.failing' => ['driver' => 'failing', 'root' => sys_get_temp_dir().'/media-doctor-failing']]);
     }
 
     protected function defineDatabaseMigrations(): void

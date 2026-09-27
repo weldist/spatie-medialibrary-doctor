@@ -4,13 +4,9 @@ declare(strict_types=1);
 
 namespace Weldist\Spatie\MediaLibrary\Doctor\Tests\Feature;
 
-use Illuminate\Filesystem\FilesystemAdapter;
-use Illuminate\Support\Facades\Storage;
-use League\Flysystem\Filesystem;
 use PHPUnit\Framework\Attributes\Test;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Weldist\Spatie\MediaLibrary\Doctor\Tests\Concerns\CreatesMedia;
-use Weldist\Spatie\MediaLibrary\Doctor\Tests\Support\FailingFilesystemAdapter;
 use Weldist\Spatie\MediaLibrary\Doctor\Tests\TestCase;
 
 class MissingOriginalsCommandTest extends TestCase
@@ -207,16 +203,5 @@ class MissingOriginalsCommandTest extends TestCase
             ->expectsOutput('Invalid value for --min-age.')
             ->expectsOutput('Invalid value for --max-missing-percent.')
             ->assertFailed();
-    }
-
-    private function registerFailingDisk(): void
-    {
-        Storage::extend('failing', function ($app, array $config): FilesystemAdapter {
-            $adapter = new FailingFilesystemAdapter($config['root']);
-
-            return new FilesystemAdapter(new Filesystem($adapter), $adapter, $config);
-        });
-
-        config(['filesystems.disks.failing' => ['driver' => 'failing', 'root' => sys_get_temp_dir().'/media-doctor-failing']]);
     }
 }

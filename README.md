@@ -5,7 +5,10 @@
 [![Laravel](https://img.shields.io/badge/Laravel-12%20|%2013-red)](https://laravel.com)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
 
-Finds [spatie/laravel-medialibrary](https://github.com/spatie/laravel-medialibrary) media rows whose original file no longer exists on their disk, and removes them without putting healthy rows at risk.
+Keeps the [spatie/laravel-medialibrary](https://github.com/spatie/laravel-medialibrary) `media` table and its disks in sync, in both directions and without putting healthy media at risk:
+
+- media rows whose original file no longer exists on their disk,
+- directories on a media disk that belong to no media row.
 
 > A [weld.ist](https://weld.ist) project.
 >
@@ -13,7 +16,7 @@ Finds [spatie/laravel-medialibrary](https://github.com/spatie/laravel-medialibra
 
 ## The Problem
 
-A media row can outlive its file: a failed upload, a bucket cleaned by hand, a restored database pointing at an older disk. media-library's own `media-library:clean` works the other way round (it removes files and directories that have no row), so nothing reports or removes these rows.
+**Rows without a file.** A media row can outlive its file: a failed upload, a bucket cleaned by hand, a restored database pointing at an older disk. Nothing in media-library reports or removes these rows.
 
 Doing it by hand with a loop of `exists()` calls is dangerous, because a filesystem driver cannot always tell "the file is not there" from "I am looking in the wrong place":
 
@@ -24,17 +27,23 @@ Doing it by hand with a loop of `exists()` calls is dangerous, because a filesys
 
 A misconfigured disk makes every file look missing, and a naive cleanup deletes every row.
 
+**Files without a row.** Files stay behind when a row is deleted outside Eloquent, a file removal fails or a database is restored to an older state. media-library's `media-library:clean` removes directories without a row, but only at the top level of the disk, which does not reach the media directories of nested path generators.
+
+Cleaning up by hand is dangerous here too. media-library writes to the `public` disk with no prefix by default, the same disk and root Laravel applications store their other uploads on, and Livewire and Filament use the application's default disk. A media disk commonly holds files that media-library does not own, and an empty `media` table or a wrong database connection makes every media file look orphaned.
+
 ## The Solution
 
 ```bash
-php artisan media-library:doctor:missing-originals            # report only
-php artisan media-library:doctor:missing-originals --delete   # delete after the safety checks
+php artisan media-library:doctor:missing-originals            # report rows without a file
+php artisan media-library:doctor:missing-originals --delete   # delete them after the safety checks
+
+php artisan media-library:doctor:orphaned-files               # report directories without a row
+php artisan media-library:doctor:orphaned-files --delete      # delete them after the safety checks
 ```
 
-- Checks only the original file with `fileExists()` on the media's own disk and path generator. Conversions and responsive images are not inspected.
-- Reports by default. Rows are deleted only with `--delete`, after the whole scan has finished and after confirmation.
-- Deletes with `$media->delete()`, so model events, observers and media-library's file remover run as usual.
-- Works with any filesystem driver; nothing depends on a specific disk or path generator.
+- Reports by default. Nothing is deleted without `--delete`, and only after the whole scan has finished and after confirmation.
+- Uses each media's own disk and path generator, so it works with any filesystem driver and any path generator.
+- Judges every disk on its own, with safety checks that stop the deletion on a disk that looks misconfigured.
 
 ## Requirements
 
@@ -54,7 +63,7 @@ The service provider is auto-discovered. There is no configuration file.
 
 ### `media-library:doctor:missing-originals`
 
-Scans the media rows, prints a summary per disk and, with `--delete`, removes the rows whose original file is missing.
+Scans the media rows, prints a summary per disk and, with `--delete`, removes the rows whose original file is missing. Only the original file is checked with `fileExists()`; conversions and responsive images are not inspected. Rows are deleted with `$media->delete()`, so model events, observers and media-library's file remover run as usual.
 
 ```
 +-------+-----------+---------+---------+--------+---------+----------+
@@ -79,7 +88,7 @@ Scans the media rows, prints a summary per disk and, with `--delete`, removes th
 
 Use `-v` to list every media row found without its original file.
 
-### Safety checks
+#### Safety checks
 
 | Check | Effect |
 |---|---|
@@ -92,6 +101,64 @@ Use `-v` to list every media row found without its original file.
 | Right before each deletion | The row is reloaded and its file checked again; it is kept if the file has appeared or the check fails. |
 
 Each disk is judged on its own: a disk that fails a check keeps its rows while the other disks are cleaned. The command exits with a failure code whenever a disk was blocked, a check failed or a deletion failed.
+
+### `media-library:doctor:orphaned-files`
+
+Lists the files of every media disk, prints a summary per disk and, with `--delete`, removes the directories that belong to no media row.
+
+```
++-------+---------+-------+-------+----------+-------------+--------+-------+----------+
+| Disk  | Path    | Files | Owned | Orphaned | Directories | Recent | Stray | Deletion |
++-------+---------+-------+-------+----------+-------------+--------+-------+----------+
+| media | library | 38212 | 38170 | 42       | 9           | 1      | 0     | allowed  |
++-------+---------+-------+-------+----------+-------------+--------+-------+----------+
+```
+
+A media row owns the directories its path generator returns for it: `getPath()` on its disk, `getPathForConversions()` and `getPathForResponsiveImages()` on its conversions disk. A file inside one of them is owned. Otherwise the topmost directory that neither is nor contains an owned directory is orphaned and deleted as a whole:
+
+```
+library/
+├── 12/                    owned by media #12, never looked into
+│   ├── cover.jpg
+│   └── conversions/thumb.jpg
+├── 57/                    no media row: orphaned, deleted with its contents
+│   ├── photo.jpg
+│   └── conversions/photo-thumb.jpg
+└── .gitignore             directly under the scanned path: stray, never deleted
+```
+
+Files inside an owned directory are never deleted, even when no row references their name. With a nested path generator (e.g. `ab/cd/{uuid}/`), shard directories that contain owned directories are kept, and a file placed directly in one of them is counted as stray.
+
+| Option | Meaning |
+|---|---|
+| `--delete` | Delete the orphaned directories. Without it the command only reports. |
+| `--force` | Delete without asking for confirmation. |
+| `--path=` | Directory to scan, relative to the disk root. Defaults to `media-library.prefix`; `/` scans the disk root. |
+| `--disk=*` | Only scan these disks. Defaults to every disk and conversions disk used by a media row, plus the configured `disk_name` and `conversions_disk_name`. |
+| `--min-age=60` | Only delete directories whose newest file was modified at least this many minutes ago. |
+| `--max-orphaned-percent=10` | Refuse to delete on a disk where more than this percentage of the files is orphaned. |
+| `--chunk=100` | Rows per database chunk. |
+
+Use `-v` to list every orphaned directory with its number of files.
+
+The owned directories of a disk are kept in memory, one entry per directory; the disk listing is streamed and not kept.
+
+#### Safety checks
+
+| Check | Effect |
+|---|---|
+| The disk root is scanned | With an empty `media-library.prefix` and no `--path`, the command reports but does not delete, because the root of a media disk usually holds files media-library does not own. |
+| Listing the disk fails | Nothing is deleted on that disk. |
+| No media row points to the disk | Nothing is deleted on that disk; the database connection or the `media` table may be wrong. |
+| No file belongs to a media row | Nothing is deleted on that disk; the prefix or the path generator may be wrong. |
+| Orphaned share above `--max-orphaned-percent` | Nothing is deleted on that disk. |
+| Newest file younger than `--min-age` | The directory is kept and counted as recent, so files of a media that is still being written or removed are left alone. A file without a modification time counts as recent. |
+| Files directly under the scanned path | Counted as stray and never deleted. |
+| Global scopes on the media model | Ignored when collecting the owned directories, so the files of soft-deleted or otherwise scoped media are never orphaned. |
+| Right before the deletion | The owned directories are collected again; a directory that belongs to a media row by then is kept. |
+| Disk not in `filesystems.disks` | The disk is skipped. |
+
+As with `missing-originals`, each disk is judged on its own and the command exits with a failure code whenever a disk was blocked, a listing failed or a deletion failed.
 
 ## Testing
 
