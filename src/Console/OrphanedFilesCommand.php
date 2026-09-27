@@ -15,6 +15,7 @@ use Spatie\MediaLibrary\Support\PathGenerator\PathGeneratorFactory;
 use Throwable;
 use Weldist\Spatie\MediaLibrary\Doctor\Console\Concerns\FiltersMedia;
 use Weldist\Spatie\MediaLibrary\Doctor\Support\OrphanScan;
+use Weldist\Spatie\MediaLibrary\Doctor\Support\PathSet;
 
 class OrphanedFilesCommand extends Command
 {
@@ -151,11 +152,7 @@ class OrphanedFilesCommand extends Command
         return $scan;
     }
 
-    /**
-     * @param  array<string, true>  $owned
-     * @param  array<string, true>  $ancestors
-     */
-    private function classify(OrphanScan $scan, StorageAttributes $file, array $owned, array $ancestors): void
+    private function classify(OrphanScan $scan, StorageAttributes $file, PathSet $owned, PathSet $ancestors): void
     {
         $directory = dirname($file->path());
 
@@ -171,13 +168,13 @@ class OrphanedFilesCommand extends Command
         foreach (explode('/', $relative) as $segment) {
             $candidate = $candidate === '' ? $segment : "{$candidate}/{$segment}";
 
-            if (isset($owned[$candidate])) {
+            if ($owned->has($candidate)) {
                 $scan->owned++;
 
                 return;
             }
 
-            if (! isset($ancestors[$candidate])) {
+            if (! $ancestors->has($candidate)) {
                 $scan->addOrphanedFile($candidate, $file->lastModified());
 
                 return;
@@ -188,12 +185,12 @@ class OrphanedFilesCommand extends Command
     }
 
     /**
-     * @return array{array<string, true>, array<string, true>, int}
+     * @return array{PathSet, PathSet, int}
      */
     private function mediaDirectories(string $disk): array
     {
-        $owned = [];
-        $ancestors = [];
+        $owned = new PathSet;
+        $ancestors = new PathSet;
         $count = 0;
 
         $query = $this->mediaQuery()->where(fn (Builder $query) => $query
@@ -204,10 +201,10 @@ class OrphanedFilesCommand extends Command
             $count++;
 
             foreach ($this->directoriesOf($media, $disk) as $directory) {
-                $owned[$directory] = true;
+                $owned->add($directory);
 
                 for ($parent = dirname($directory); $parent !== '.'; $parent = dirname($parent)) {
-                    $ancestors[$parent] = true;
+                    $ancestors->add($parent);
                 }
             }
         }
@@ -228,7 +225,23 @@ class OrphanedFilesCommand extends Command
             ...($conversionsDisk === $disk ? [$generator->getPathForConversions($media), $generator->getPathForResponsiveImages($media)] : []),
         ];
 
-        return array_values(array_filter(array_map(fn (string $path) => trim($path, '/'), $paths), fn (string $path) => $path !== ''));
+        $paths = array_values(array_unique(array_filter(array_map(fn (string $path) => trim($path, '/'), $paths), fn (string $path) => $path !== '')));
+
+        return array_values(array_filter($paths, fn (string $path) => ! $this->isNestedInAny($path, $paths)));
+    }
+
+    /**
+     * @param  list<string>  $paths
+     */
+    private function isNestedInAny(string $path, array $paths): bool
+    {
+        foreach ($paths as $other) {
+            if (str_starts_with($path, "{$other}/")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -339,18 +352,14 @@ class OrphanedFilesCommand extends Command
         return ! $blocked && $stats['failed'] === 0;
     }
 
-    /**
-     * @param  array<string, true>  $owned
-     * @param  array<string, true>  $ancestors
-     */
-    private function isClaimed(string $directory, array $owned, array $ancestors): bool
+    private function isClaimed(string $directory, PathSet $owned, PathSet $ancestors): bool
     {
-        if (isset($ancestors[$directory])) {
+        if ($ancestors->has($directory)) {
             return true;
         }
 
         for ($path = $directory; $path !== '.'; $path = dirname($path)) {
-            if (isset($owned[$path])) {
+            if ($owned->has($path)) {
                 return true;
             }
         }

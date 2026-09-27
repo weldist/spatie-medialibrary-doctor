@@ -165,7 +165,9 @@ Files inside an owned directory are never deleted, even when no row references t
 
 Use `-v` to list every orphaned directory with its number of files.
 
-The owned directories of a disk are kept in memory, one entry per directory; the disk listing is streamed and not kept.
+The owned directories of a disk are kept in memory as 64-bit hashes, one per media: about 45 MB per million media, whatever the path length. The disk listing is streamed and not kept. For several million media on one disk, raise `memory_limit`.
+
+A hash collision can only make an orphaned directory look owned, so it is kept rather than deleted.
 
 #### Safety checks
 
