@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: "8.4"
+            profile: php84
+          - php: "8.5"
+            profile: php85
+
+    name: PHP ${{ matrix.php }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: DOCKER_BUILDKIT=0 docker compose --profile ${{ matrix.profile }} build
+
+      - name: Run tests
+        run: docker compose --profile ${{ matrix.profile }} up --abort-on-container-exit --exit-code-from ${{ matrix.profile }}

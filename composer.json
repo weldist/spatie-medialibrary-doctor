@@ -1,0 +1,44 @@
+{
+    "name": "weldist/spatie-medialibrary-doctor",
+    "description": "Diagnoses spatie/laravel-medialibrary media rows whose original file is missing and safely removes them.",
+    "keywords": ["laravel", "spatie", "medialibrary", "media", "missing-files", "cleanup"],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "X-Adam",
+            "email": "www@mehmetogmen.com.tr",
+            "homepage": "https://mehmetogmen.com.tr"
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "illuminate/support": "^12.0|^13.0",
+        "spatie/laravel-medialibrary": "^11.0|^12.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^10.0|^11.0",
+        "phpunit/phpunit": "^11.0|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Weldist\\Spatie\\MediaLibrary\\Doctor\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Weldist\\Spatie\\MediaLibrary\\Doctor\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Weldist\\Spatie\\MediaLibrary\\Doctor\\DoctorServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

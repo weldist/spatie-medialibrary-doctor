@@ -1,0 +1,79 @@
+x-php: &php
+  volumes:
+    - .:/app
+  depends_on:
+    mysql:
+      condition: service_healthy
+    mariadb:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+  entrypoint:
+    - sh
+    - -c
+    - |
+      composer install --no-interaction || exit 1
+      for driver in sqlite mysql mariadb pgsql; do
+        echo "Running the test suite on $$driver"
+        DB_DRIVER=$$driver vendor/bin/phpunit || exit 1
+      done
+
+services:
+  php84:
+    <<: *php
+    build:
+      context: .
+      args:
+        PHP_VERSION: "8.4"
+    volumes:
+      - .:/app
+      - vendor84:/app/vendor
+    profiles: ["php84"]
+
+  php85:
+    <<: *php
+    build:
+      context: .
+      args:
+        PHP_VERSION: "8.5"
+    volumes:
+      - .:/app
+      - vendor85:/app/vendor
+    profiles: ["php85"]
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_DATABASE: testing
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-psecret"]
+      interval: 3s
+      retries: 30
+    profiles: ["php84", "php85"]
+
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: secret
+      MARIADB_DATABASE: testing
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      retries: 30
+    profiles: ["php84", "php85"]
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: testing
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 3s
+      retries: 30
+    profiles: ["php84", "php85"]
+
+volumes:
+  vendor84:
+  vendor85:
