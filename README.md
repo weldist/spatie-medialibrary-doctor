@@ -34,6 +34,8 @@ Cleaning up by hand is dangerous here too. media-library writes to the `public` 
 ## The Solution
 
 ```bash
+php artisan media-library:doctor                              # check the configuration, touches no disk
+
 php artisan media-library:doctor:missing-originals            # report rows without a file
 php artisan media-library:doctor:missing-originals --delete   # delete them after the safety checks
 
@@ -60,6 +62,28 @@ composer require weldist/spatie-medialibrary-doctor
 The service provider is auto-discovered. There is no configuration file.
 
 ## Commands
+
+### `media-library:doctor`
+
+Checks the configuration and the `media` table in a few seconds, without listing, reading or deleting any file. Run it before the scans: it shows why they would skip rows or refuse to delete.
+
+```
++-------+----------------+-------+-------------+
+| Disk  | Driver         | Media | Conversions |
++-------+----------------+-------+-------------+
+| ghost | not configured | 3     | 3           |
+| media | s3             | 12400 | 12400       |
++-------+----------------+-------+-------------+
+```
+
+| Check | Fails or warns when |
+|---|---|
+| Disks are configured | **Fails** when a disk used by media is not defined in `filesystems.disks`. The scans skip these rows. |
+| Path generators are valid | **Fails** when `path_generator` or an entry of `custom_path_generators` is not a `PathGenerator`. |
+| Media prefix is set | **Warns** when `media-library.prefix` is empty. `orphaned-files` then deletes only with `--path`. |
+| Media rows have created_at | **Warns** about rows without `created_at`. `missing-originals` inspects them only with `--min-age=0`. |
+
+The command exits with a failure code when a check fails; warnings do not change the exit code. Global scopes of the media model are ignored.
 
 ### `media-library:doctor:missing-originals`
 
